@@ -9,6 +9,10 @@
 #include <benchmark.hpp>
 #include <SFML/Window.hpp>
 #include <SFML/Graphics.hpp>
+//#define STB_IMAGE_IMPLEMENTATION
+//#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 struct camera{
     glm::vec3 pos;
     float yaw, pitch;
@@ -34,6 +38,7 @@ struct camera{
         return ret;
     }
 };
+
 using Eigen::Vector2f;
 using Eigen::Vector2i;
 using Eigen::Vector3f;
@@ -55,13 +60,14 @@ struct barycentric_triangle_function{
     scalar inv_detT;
 
     barycentric_triangle_function(const vec4& v1, const vec4& v2, const vec4& v3){
+        using std::abs;
         vertices[0] = v1;
         vertices[1] = v2;
         vertices[2] = v3;
         one_over_ws = vec3{scalar(1) / v1.w(), scalar(1) / v2.w(), scalar(1) / v3.w()};
         T.col(0) = vertices[1].template head<2>() - vertices[0].template head<2>();
         T.col(1) = vertices[2].template head<2>() - vertices[0].template head<2>();
-        inv_detT = scalar(1.0) / T.determinant();
+        inv_detT = abs(scalar(1.0) / T.determinant());
     }
     template<typename attribute>
     attribute perspective_correct(const Eigen::Matrix<scalar, 2, 1>& p, attribute av1, attribute av2, attribute av3){
@@ -92,7 +98,10 @@ struct barycentric_triangle_function{
         + (vertices[0].x() - vertices[2].x()) * (p.y() - vertices[2].y());
         l1 *= inv_detT;
         l2 *= inv_detT;
-        return vec3(l1, l2, scalar(1) - l1 - l2);
+        vec3 ret(l1, l2, scalar(1) - l1 - l2);
+       
+        //ret = ret.cwiseMax(0.0f).cwiseMin(1.0f);
+        return ret;
     }
 };
 
@@ -174,11 +183,15 @@ void draw_triangle(framebuffer& img, const camera& cam, const vertex& p1, const 
             Vector2f clip = img.screen2clip(Vector2i{i, j});
             Vector3f linear = bary.linear(clip);
             if(linear.maxCoeff() <= 1.0f && linear.minCoeff() >= 0.0f){
+                 if((linear.array() < 0.0f).any()){
+                    std::cout << linear.transpose() << "\n";
+                }
                 Vector3f one_over_ws = linear.cwiseProduct(bary.one_over_ws);
                 float isum = 1.0f / one_over_ws.sum();
                 Vector2f beval = bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.uv, p2.uv, p3.uv);
                 Vector3f frag_color = bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.color, p2.color, p3.color);
                 float zeval =    bary.perspective_correct2(linear, one_over_ws, isum, clip, clipp1.z(), clipp2.z(), clipp3.z());
+                //std::cout << beval.transpose() << "\n";
                 img.paint_pixeli(i, j, frag_color, 1.0f, zeval);
             }
         }
@@ -233,6 +246,9 @@ void to_tex(const framebuffer& img, sf::Texture& tex){
 }
 void draw();
 int main(){
+    glm::mat4 tst(1);
+    std::cout << glm::to_string(tst) << "\n";
+    return 0;
     const unsigned width = 2560, height = 1440;
     init(width, height);
     sf::Texture tex;

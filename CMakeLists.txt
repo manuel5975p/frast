@@ -33,6 +33,8 @@ FetchContent_MakeAvailable(glm)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fopenmp")
 # Add the executable
 add_executable(rast3d rast3d.cpp)
+add_executable(test rast3dtest.cpp)
 # Link SFML and include glm
 target_link_libraries(rast3d glm sfml-system sfml-window sfml-graphics)
+target_link_libraries(rast3d sfml-system sfml-window sfml-graphics)
 
