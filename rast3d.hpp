@@ -1,10 +1,12 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <vector>
 #include <array>
 #include <cassert>
 #include <initializer_list>
 #include <memory>
+#include <stack>
 template<typename T1, typename T2>
 struct bigger_impl{
     using type = decltype(T1{} + T2{});
@@ -106,7 +108,7 @@ template<typename T>
 struct Vector4{
     T x, y, z, w;
     #define OP4(X) Vector4<T> operator X(Vector4<T> o)const noexcept{return Vector4{x X o.x, y X o.y, z X o.z, w X o.w};}
-    #define OPA4(X) Vector3<T>& operator X(Vector3<T> o)noexcept{x X o.x;y X o.y;z X o.z;w X o.w;return *this;}
+    #define OPA4(X) Vector4<T>& operator X(Vector4<T> o)noexcept{x X o.x;y X o.y;z X o.z;w X o.w;return *this;}
     OP4(+)
     OP4(-)
     OP4(*)
@@ -133,9 +135,17 @@ struct Vector4{
     } 
     Vector4<T> homogenize()const noexcept{
         T iw = T(1) / w;
-        return *this * iw;
+        Vector4<T> ret(*this);
+        ret.x *= iw;
+        ret.y *= iw;
+        ret.z *= iw;
+        return ret;
     }
 };
+template<typename T>
+Vector4<T> zero_extend(const Vector3<T>& v){
+    return Vector4<T>{v.x, v.y, v.z, T(0)};
+}
 template<typename T>
 Vector2<T> operator*(T x, const Vector2<T>& v){
     return Vector2<T>{x * v.x, x * v.y};
@@ -276,6 +286,17 @@ Matrix4<T> perspectiveRH_NO(T fovy, T aspect, T zNear, T zFar){
 	Result(2, 3) = - (T(2) * zFar * zNear) / (zFar - zNear);
 	return Result;
 }
+template<typename T>
+Matrix4<T> ortho(T left, T right, T bottom, T top, T zNear, T zFar){
+	Matrix4<T> result(1);
+	result(0, 0) = T(2) / (right - left);
+	result(1, 1) = T(2) / (top - bottom);
+	result(2, 2) = -T(2) / (zFar - zNear);
+	result(0, 3) = -(right + left) / (right - left);
+	result(1, 3) = -(top + bottom) / (top - bottom);
+	result(2, 3) = -(zFar + zNear) / (zFar - zNear);
+	return result;
+}
 struct camera{
     using vec3 = Vector3<float>;
     using mat4 = Matrix4<float>;
@@ -300,7 +321,7 @@ struct camera{
         return ret;
     }
     mat4 perspective_matrix(float width, float height)const noexcept{
-        return perspectiveRH_NO(1.0f, width / height, 0.05f, 50.0f);
+        return perspectiveRH_NO(1.0f, width / height, 0.05f, 500.0f);
     }
     mat4 matrix(float width, float height)const noexcept{
         return perspective_matrix(width, height) * view_matrix();
@@ -322,19 +343,19 @@ struct framebuffer{
         two_over_resolution.x = 2.0f / resolution.x;
         two_over_resolution.y = 2.0f / resolution.y;
         std::fill(color_buffer.get(), color_buffer.get() + w * h, color_t{0,0,0});
-        std::fill(depth_buffer.get(), depth_buffer.get() + w * h, depth_t(-1000.0f));
+        std::fill(depth_buffer.get(), depth_buffer.get() + w * h, depth_t(1000.0f));
     }
     void paint_pixeli(unsigned i, unsigned j, const color_t& color, float alpha, float depth){
         if(i >= resolution.x || j >= resolution.y){
             return;
         }
-        if(depth_buffer[i * resolution.x + j] >= depth){
+        if(depth_buffer[i + j * resolution.x] <= depth){
             return;
         }
         
-        depth_buffer[i * resolution.x + j] = depth;
-        color_t prevc = color_buffer[i * resolution.x + j];
-        color_buffer[i * resolution.x + j] = color * alpha + prevc * (1.0f - alpha);
+        depth_buffer[i + j * resolution.x] = depth;
+        color_t prevc = color_buffer[i + j * resolution.x];
+        color_buffer[i + j * resolution.x] = color * alpha + prevc * (1.0f - alpha);
     }
     void paint_pixel(float x, float y, const color_t& color, float alpha){
         float xnrm = (x + 1) * 0.5f * float(resolution.x);
@@ -370,7 +391,7 @@ struct barycentric_triangle_function{
         one_over_ws = vec3{scalar(1) / v1.w, scalar(1) / v2.w, scalar(1) / v3.w};
         T[0] = vertices[1].head2() - vertices[0].head2();
         T[1] = vertices[2].head2() - vertices[0].head2();
-        inv_detT = abs(scalar(1.0) / (T[0].x * T[1].y - T[0].y * T[1].x));
+        inv_detT = (scalar(1.0) / (T[0].x * T[1].y - T[0].y * T[1].x));
     }
     template<typename attribute>
     attribute perspective_correct(const vec2& p, attribute av1, attribute av2, attribute av3){
@@ -408,13 +429,72 @@ struct barycentric_triangle_function{
     }
 };
 struct vertex{
-    Vector3<float> pos;
-    Vector2<float> uv;
-    Vector3<float> color;
+    using pos_t = Vector3<float>;
+    using uv_t = Vector2<float>;
+    using color_t = Vector3<float>;
+    pos_t pos;
+    uv_t uv;
+    color_t color;
 };
+template<typename T>
+struct ptr : public std::unique_ptr<T, std::default_delete<T>>{
+    using base = std::unique_ptr<T, std::default_delete<T>>;
+    operator T*() noexcept{
+        return base::get();
+    }
+    operator const T*() const noexcept{
+        return base::get();
+    }
+    operator const unsigned char*() const noexcept{
+        return (const unsigned char*)base::get();
+    }
+};
+using Color = Vector4<unsigned char>;
+struct Image {
+    ptr<Color[]> data;             // Image raw data
+    int width;                  // Image base width
+    int height;                 // Image base height
 
-void draw_triangle(framebuffer& img, const camera& cam, const vertex& p1, const vertex& p2, const vertex& p3){
-    Matrix4<float> mat = cam.matrix(img.resolution.x, img.resolution.y);
+    //Unsupported options
+    //int mipmaps;                // Mipmap levels, 1 by default
+    //int format;                 // Data format (PixelFormat type)
+};
+Image GenImageChecked(int width, int height, int checksX, int checksY, Color col1, Color col2){
+    std::unique_ptr<Color[]> pixels = std::make_unique<Color[]>(width * height);
+
+    for (int y = 0; y < height; y++){
+        for (int x = 0; x < width; x++){
+            if ((x / checksX + y / checksY) % 2 == 0) pixels[y * width + x] = col1;
+            else pixels[y * width + x] = col2;
+        }
+    }
+
+    Image image = {
+        .data = {std::move(pixels)},
+        .width = width,
+        .height = height,
+        //.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+        //.mipmaps = 1
+    };
+
+    return image;
+}
+Vector4<float> texture2D(const Image& img, const Vector2<float>& uv){
+    const unsigned char* cptr = (const unsigned char*)(img.data);
+    Vector4<float> ret;
+    int x = std::min((int)(uv.x * (img.width)), img.width - 1);
+    int y = std::min((int)(uv.y * (img.height)), img.width - 1);
+    
+    ret.x = cptr[(y * img.width + x) *4 + 0] / 255.0f;
+    ret.y = cptr[(y * img.width + x) *4 + 1] / 255.0f;
+    ret.z = cptr[(y * img.width + x) *4 + 2] / 255.0f;
+    ret.w = cptr[(y * img.width + x) *4 + 3] / 255.0f;
+
+    return ret;
+}
+template<bool textured = false>
+void draw_triangle(framebuffer& img, const Matrix4<float>& mat, const vertex& p1, const vertex& p2, const vertex& p3, const Image* texture = nullptr){
+    //Matrix4<float> mat = cam.matrix(img.resolution.x, img.resolution.y);
     Vector4<float> clipp1 = to_vec4(p1.pos);clipp1 = (mat * clipp1).homogenize();
     Vector4<float> clipp2 = to_vec4(p2.pos);clipp2 = (mat * clipp2).homogenize();
     Vector4<float> clipp3 = to_vec4(p3.pos);clipp3 = (mat * clipp3).homogenize();
@@ -446,14 +526,124 @@ void draw_triangle(framebuffer& img, const camera& cam, const vertex& p1, const 
             if(linear.maxCoeff() <= 1.0f && linear.minCoeff() >= 0.0f){
                 Vector3f one_over_ws = linear * bary.one_over_ws;
                 float isum = 1.0f / (one_over_ws.x + one_over_ws.y + one_over_ws.z);
-                Vector2f beval = bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.uv, p2.uv, p3.uv);
-                Vector3f frag_color = bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.color, p2.color, p3.color);
-                float zeval =    bary.perspective_correct2(linear, one_over_ws, isum, clip, clipp1.z, clipp2.z, clipp3.z);
+                Vector4<float> frag_color = zero_extend(bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.color, p2.color, p3.color));
+                if constexpr(textured){
+                    Vector2f beval = bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.uv, p2.uv, p3.uv);
+                    frag_color *= texture2D(*texture, beval);
+                }
+                float zeval = bary.perspective_correct2(linear, one_over_ws, isum, clip, clipp1.z, clipp2.z, clipp3.z);
                 //std::cout << beval.transpose() << "\n";
-                img.paint_pixeli(i, j, frag_color, 1.0f, zeval);
+                img.paint_pixeli(i, j, Vector3<float>{frag_color.x,frag_color.y,frag_color.z}, 1.0f, zeval);
             }
         }
     }
+}
+enum draw_mode{
+    nothing, triangles
+};
+static framebuffer* current_fb;
+static framebuffer* default_fb;
+static Image* active_texture;
+static draw_mode cmode;
+vertex::uv_t current_uv;
+vertex::color_t current_color;
+static std::vector<vertex> current_buffer;
+static std::stack<Matrix4<float>> matrix_stack;
+void rlBegin(draw_mode mode){
+    current_buffer.resize(1);
+    cmode = mode;
+}
+
+void rlVertex3f(float x, float y, float z){
+    current_buffer.push_back(vertex{.pos = Vector3<float>{x, y, z}, .uv = current_uv, .color = current_color});
+}
+void rlVertex2f(float x, float y){
+    rlVertex3f(x, y, 0.0f);
+}
+void rlColor3f(float r, float g, float b){
+    current_color = vertex::color_t{r, g, b};
+    if(!current_buffer.empty()){
+        current_buffer.back().color = vertex::color_t{r, g, b};
+    }
+}
+void rlTexCoord2f(float r, float g){
+    current_uv = vertex::uv_t{r, g};
+    if(!current_buffer.empty()){
+        current_buffer.back().uv = vertex::uv_t{r, g};
+    }
+}
+void set_texture(Image* image){
+    active_texture = image;
+}
+void unset_texture(){
+    active_texture = nullptr;
+}
+void rlEnd(){
+    if(cmode == triangles){
+        while(current_buffer.size() >= 3){
+            if(active_texture == nullptr)
+                draw_triangle(*current_fb, matrix_stack.top(), current_buffer[current_buffer.size() - 3], current_buffer[current_buffer.size() - 2], current_buffer[current_buffer.size() - 1]);
+            else
+                draw_triangle<true>(*current_fb, matrix_stack.top(), current_buffer[current_buffer.size() - 3], current_buffer[current_buffer.size() - 2], current_buffer[current_buffer.size() - 1], active_texture);
+            current_buffer.erase(current_buffer.end() - 3, current_buffer.end());
+        }
+    }
+    cmode = nothing;
+}
+void DrawTriangleStrip(const Vector2<float> *points, int pointCount, Color color)
+{
+    if (pointCount >= 3)
+    {
+        rlBegin(triangles);
+            rlColor3f(color.x / 255.0f, color.y / 255.0f, color.z / 255.0f);
+
+            for (int i = 2; i < pointCount; i++)
+            {
+                if ((i%2) == 0)
+                {
+                    rlVertex2f(points[i].x, points[i].y);
+                    rlVertex2f(points[i - 2].x, points[i - 2].y);
+                    rlVertex2f(points[i - 1].x, points[i - 1].y);
+                }
+                else
+                {
+                    rlVertex2f(points[i].x, points[i].y);
+                    rlVertex2f(points[i - 1].x, points[i - 1].y);
+                    rlVertex2f(points[i - 2].x, points[i - 2].y);
+                }
+            }
+        rlEnd();
+    }
+}
+void DrawLineEx(Vector2<float> startPos, Vector2<float> endPos, float thick, Color color){
+    using std::sqrt;
+    using std::hypot;
+    Vector2<float> delta = { endPos.x - startPos.x, endPos.y - startPos.y };
+    float length = hypot(delta.x, delta.y);
+
+    if ((length > 0) && (thick > 0))
+    {
+        float scale = thick/(2*length);
+        Vector2<float> radius = { -scale*delta.y, scale*delta.x };
+        Vector2<float> strip[4] = {
+            { startPos.x - radius.x, startPos.y - radius.y },
+            { startPos.x + radius.x, startPos.y + radius.y },
+            { endPos.x - radius.x, endPos.y - radius.y },
+            { endPos.x + radius.x, endPos.y + radius.y }
+        };
+
+        DrawTriangleStrip(strip, 4, color);
+    }
+}
+
+void DrawRectangle(Vector2<float> pos, Vector2<float> ext){
+
+}
+void InitWindow(unsigned w, unsigned h){
+    default_fb = new framebuffer(w, h);
+    current_fb = default_fb;
+    matrix_stack.push(ortho<float>(0,w, h, 0, -1, 1));
+    active_texture = nullptr;
 }
 void outputPPM(const framebuffer& fb, const std::string& filename) {
     std::ofstream file(filename);
@@ -468,13 +658,71 @@ void outputPPM(const framebuffer& fb, const std::string& filename) {
 
     for (unsigned int j = 0; j < fb.resolution.y; ++j) {
         for (unsigned int i = 0; i < fb.resolution.x; ++i) {
-            auto color = fb.color_buffer[i * fb.resolution.y + j];
+            auto color = fb.color_buffer[i + j * fb.resolution.x];
             int r = static_cast<int>(color.x * 255);
             int g = static_cast<int>(color.y * 255);
             int b = static_cast<int>(color.z * 255);
             file << r << " " << g << " " << b << "\t";
         }
         file << "\n";
+    }
+
+    file.close();
+}
+
+void outputBMP(const framebuffer& fb, const std::string& filename) {
+    std::ofstream file(filename, std::ios::out | std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        return;
+    }
+
+    int width = fb.resolution.x;
+    int height = fb.resolution.y;
+
+    // BMP file header
+    const char bmpHeader[] = "BM";
+    int fileSize = 54 + 3 * width * height; // 54 bytes for the header
+    int reserved = 0;
+    int dataOffset = 54;
+
+    file.write(bmpHeader, 2);
+    file.write((char*)&fileSize, 4);
+    file.write((char*)&reserved, 4);
+    file.write((char*)&dataOffset, 4);
+
+    // DIB header
+    int dibHeaderSize = 40;
+    int colorPlanes = 1;
+    int bitsPerPixel = 24; // 8 bits per channel (RGB)
+    int compression = 0;
+    int imageSize = 3 * width * height;
+    int horizontalResolution = 2835; // 72 DPI
+    int verticalResolution = 2835; // 72 DPI
+
+    file.write((char*)&dibHeaderSize, 4);
+    file.write((char*)&width, 4);
+    file.write((char*)&height, 4);
+    file.write((char*)&colorPlanes, 2);
+    file.write((char*)&bitsPerPixel, 2);
+    file.write((char*)&compression, 4);
+    file.write((char*)&imageSize, 4);
+    file.write((char*)&horizontalResolution, 4);
+    file.write((char*)&verticalResolution, 4);
+    file.write((char*)&reserved, 4);
+    file.write((char*)&reserved, 4);
+
+    // Write pixel data in BGR order
+    for (int j = height - 1; j >= 0; j--) {
+        for (int i = 0; i < width; i++) {
+            auto color = fb.color_buffer[i + j * width];
+            unsigned char b = static_cast<unsigned char>(std::max(std::min(color.x, 1.0f), 0.0f) * 255);
+            unsigned char g = static_cast<unsigned char>(std::max(std::min(color.y, 1.0f), 0.0f) * 255);
+            unsigned char r = static_cast<unsigned char>(std::max(std::min(color.z, 1.0f), 0.0f) * 255);
+            file.write((char*)&r, 1);
+            file.write((char*)&g, 1);
+            file.write((char*)&b, 1);
+        }
     }
 
     file.close();
