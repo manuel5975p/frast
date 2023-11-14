@@ -1,3 +1,5 @@
+#ifndef FRAST3D_HPP
+#define FRAST3D_HPP
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -9,7 +11,7 @@
 #include <stack>
 template<typename T1, typename T2>
 struct bigger_impl{
-    using type = decltype(T1{} + T2{});
+    using type = std::remove_all_extents_t<decltype(std::remove_all_extents_t<T1>{} + std::remove_all_extents_t<T2>{})>;
 };
 template<typename T1, typename T2>
 using bigger = typename bigger_impl<T1, T2>::type;
@@ -132,7 +134,10 @@ struct Vector4{
     }
     Vector2<T> head2()const noexcept{
         return Vector2<T>{x, y};
-    } 
+    }
+    Vector3<T> head3()const noexcept{
+        return Vector3<T>{x, y, z};
+    }
     Vector4<T> homogenize()const noexcept{
         T iw = T(1) / w;
         Vector4<T> ret(*this);
@@ -142,10 +147,7 @@ struct Vector4{
         return ret;
     }
 };
-template<typename T>
-Vector4<T> zero_extend(const Vector3<T>& v){
-    return Vector4<T>{v.x, v.y, v.z, T(0)};
-}
+
 template<typename T>
 Vector2<T> operator*(T x, const Vector2<T>& v){
     return Vector2<T>{x * v.x, x * v.y};
@@ -159,7 +161,11 @@ Vector4<T> operator*(T x, const Vector4<T>& v){
     return Vector4<T>{x * v.x, x * v.y, x * v.z, x * v.w};
 }
 template<typename T>
-Vector4<T> to_vec4(const Vector3<T>& o){
+Vector4<T> zero_extend(const Vector3<T>& v){
+    return Vector4<T>{v.x, v.y, v.z, T(0)};
+}
+template<typename T>
+Vector4<T> one_extend(const Vector3<T>& o){
     Vector4<T> ret;
     ret.x = o.x;
     ret.y = o.y;
@@ -327,35 +333,82 @@ struct camera{
         return perspective_matrix(width, height) * view_matrix();
     }
 };
+template<typename T>
+struct ptr : public std::unique_ptr<T>{
+    using base = std::unique_ptr<T>;
+    using base::base;
+    ptr() : base(){}
+    ptr(base b) : base(std::move(b)){}
+    /*ptr(T* v) : base(v){
+
+    }
+    ptr(base&& v) : base(std::move(v)){
+
+    }*/
+    operator T*() noexcept{
+        return base::get();
+    }
+    operator const T*() const noexcept{
+        return base::get();
+    }
+    operator const unsigned char*() const noexcept{
+        return (const unsigned char*)base::get();
+    }
+};
+using Color = Vector4<unsigned char>;
+template<typename _value_type>
+struct basic_image {
+    using value_type = _value_type;
+    ptr<value_type[]> data;             // Image raw data
+    unsigned int width;                 // Image base width
+    unsigned int height;                // Image base height
+    basic_image(unsigned w, unsigned h) : data(std::make_unique<value_type[]>(w * h)), width(w), height(h) {
+        //data.reset(new value_type[w * h]);
+    }
+    basic_image(unsigned w, unsigned h, std::unique_ptr<value_type[]> rdata) : data(std::move(rdata)), width(w), height(h) {
+    }
+    const value_type& operator()(unsigned i, unsigned j)const noexcept{
+        return data[i + j * width];
+    }
+    value_type& operator()(unsigned i, unsigned j)noexcept{
+        return data[i + j * width];
+    }
+    //Unsupported options
+    //int mipmaps;                // Mipmap levels, 1 by default
+    //int format;                 // Data format (PixelFormat type)
+};
+using Image = basic_image<Color>;
 struct framebuffer{
-    Vector2<unsigned int> resolution;
-    Vector2<unsigned int> resolution_minus_one;
     using color_t = Vector3<float>;
     using depth_t = float;
-    std::unique_ptr<color_t[]> color_buffer;
-    std::unique_ptr<depth_t[]> depth_buffer;
+
+    Vector2<unsigned int> resolution;
+    Vector2<unsigned int> resolution_minus_one;
+    
+    basic_image<color_t> color_buffer;
+    basic_image<depth_t> depth_buffer;
 
     Vector2<float> two_over_resolution;
-    framebuffer(unsigned int w, unsigned int h) : resolution{w, h}, resolution_minus_one{w - 1, h - 1}{
+    framebuffer(unsigned int w, unsigned int h) : resolution{w, h}, resolution_minus_one{w - 1, h - 1}, color_buffer(w, h), depth_buffer(w, h){
         assert(w && h && (w < 65356) && (h < 65356) && "Need positive and nonzero extents and reasonably big");
-        color_buffer = std::make_unique<color_t[]>(w * h);
-        depth_buffer = std::make_unique<depth_t[]>(w * h);
         two_over_resolution.x = 2.0f / resolution.x;
         two_over_resolution.y = 2.0f / resolution.y;
-        std::fill(color_buffer.get(), color_buffer.get() + w * h, color_t{0,0,0});
-        std::fill(depth_buffer.get(), depth_buffer.get() + w * h, depth_t(1000.0f));
+        std::fill(depth_buffer.data.get(), depth_buffer.data.get() + w * h, depth_t(INFINITY));
     }
     void paint_pixeli(unsigned i, unsigned j, const color_t& color, float alpha, float depth){
         if(i >= resolution.x || j >= resolution.y){
             return;
         }
-        if(depth_buffer[i + j * resolution.x] <= depth){
+        //std::cout << i << " " << j << std::endl;
+        //std::cout << color << std::endl;
+        //std::cout << resolution.y << std::endl;
+        if(depth_buffer(i, j) <= depth){
             return;
         }
         
-        depth_buffer[i + j * resolution.x] = depth;
-        color_t prevc = color_buffer[i + j * resolution.x];
-        color_buffer[i + j * resolution.x] = color * alpha + prevc * (1.0f - alpha);
+        depth_buffer(i, j) = depth;
+        color_t prevc = color_buffer(i, j);
+        color_buffer(i, j) = color * alpha + prevc * (1.0f - alpha);
     }
     void paint_pixel(float x, float y, const color_t& color, float alpha){
         float xnrm = (x + 1) * 0.5f * float(resolution.x);
@@ -436,29 +489,64 @@ struct vertex{
     uv_t uv;
     color_t color;
 };
-template<typename T>
-struct ptr : public std::unique_ptr<T, std::default_delete<T>>{
-    using base = std::unique_ptr<T, std::default_delete<T>>;
-    operator T*() noexcept{
-        return base::get();
-    }
-    operator const T*() const noexcept{
-        return base::get();
-    }
-    operator const unsigned char*() const noexcept{
-        return (const unsigned char*)base::get();
-    }
+enum draw_mode{
+    nothing, triangles
 };
-using Color = Vector4<unsigned char>;
-struct Image {
-    ptr<Color[]> data;             // Image raw data
-    int width;                  // Image base width
-    int height;                 // Image base height
 
-    //Unsupported options
-    //int mipmaps;                // Mipmap levels, 1 by default
-    //int format;                 // Data format (PixelFormat type)
-};
+
+
+Image GenImageChecked(int width, int height, int checksX, int checksY, Color col1, Color col2);
+Vector4<float> texture2D(const Image& img, const Vector2<float>& uv);
+template<bool textured>
+void draw_triangle_already_projected(framebuffer& img, const vertex& p1, const vertex& p2, const vertex& p3, const Image* texture = nullptr);
+template<bool textured = false>
+void draw_triangle(framebuffer& img, const Matrix4<float>& mat, vertex p1, vertex p2, vertex p3, const Image* texture = nullptr);
+void rlBegin(draw_mode mode);
+void rlVertex3f(float x, float y, float z);
+void rlVertex2f(float x, float y);
+void rlColor3f(float r, float g, float b);
+void rlTexCoord2f(float r, float g);
+void rlEnd();
+void set_texture(Image* image);
+void unset_texture();
+void DrawTriangleStrip(const Vector2<float> *points, int pointCount, Color color);
+void DrawBillboardLineEx(Vector3<float> startPos, Vector3<float> endPos, float thick, Color color);
+void DrawLineEx(Vector2<float> startPos, Vector2<float> endPos, float thick, Color color);
+void DrawRectangle(Vector2<float> pos, Vector2<float> ext);
+extern framebuffer* current_fb;
+extern framebuffer* default_fb;
+extern Image* active_texture;
+extern draw_mode cmode;
+extern vertex::uv_t current_uv;
+extern vertex::color_t current_color;
+extern std::vector<vertex> current_buffer;
+extern std::stack<Matrix4<float>> matrix_stack;
+void InitWindow(unsigned w, unsigned h);
+void outputPPM(const framebuffer& fb, const std::string& filename);
+void outputBMP(const framebuffer& fb, const std::string& filename);
+
+#ifdef FRAST3D_IMPLEMENTATION
+framebuffer* current_fb;
+framebuffer* default_fb;
+Image* active_texture;
+draw_mode cmode;
+vertex::uv_t current_uv;
+vertex::color_t current_color;
+std::vector<vertex> current_buffer;
+std::stack<Matrix4<float>> matrix_stack;
+Vector4<float> texture2D(const Image& img, const Vector2<float>& uv){
+    const unsigned char* cptr = (const unsigned char*)(img.data);
+    Vector4<float> ret;
+    int x = std::min((unsigned int)(uv.x * (img.width)), img.width - 1);
+    int y = std::min((unsigned int)(uv.y * (img.height)), img.height - 1);
+    
+    ret.x = cptr[(y * img.width + x) * 4 + 0] / 255.0f;
+    ret.y = cptr[(y * img.width + x) * 4 + 1] / 255.0f;
+    ret.z = cptr[(y * img.width + x) * 4 + 2] / 255.0f;
+    ret.w = cptr[(y * img.width + x) * 4 + 3] / 255.0f;
+
+    return ret;
+}
 Image GenImageChecked(int width, int height, int checksX, int checksY, Color col1, Color col2){
     std::unique_ptr<Color[]> pixels = std::make_unique<Color[]>(width * height);
 
@@ -468,60 +556,60 @@ Image GenImageChecked(int width, int height, int checksX, int checksY, Color col
             else pixels[y * width + x] = col2;
         }
     }
-
-    Image image = {
-        .data = {std::move(pixels)},
-        .width = width,
-        .height = height,
-        //.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
-        //.mipmaps = 1
-    };
-
-    return image;
+    return Image(width, height, std::move(pixels));
 }
-Vector4<float> texture2D(const Image& img, const Vector2<float>& uv){
-    const unsigned char* cptr = (const unsigned char*)(img.data);
-    Vector4<float> ret;
-    int x = std::min((int)(uv.x * (img.width)), img.width - 1);
-    int y = std::min((int)(uv.y * (img.height)), img.width - 1);
-    
-    ret.x = cptr[(y * img.width + x) *4 + 0] / 255.0f;
-    ret.y = cptr[(y * img.width + x) *4 + 1] / 255.0f;
-    ret.z = cptr[(y * img.width + x) *4 + 2] / 255.0f;
-    ret.w = cptr[(y * img.width + x) *4 + 3] / 255.0f;
+template<bool textured>
+void draw_triangle_already_projected(framebuffer& img, const vertex& p1, const vertex& p2, const vertex& p3, const Image* texture){
+    Vector4<float> clipp1 = one_extend(p1.pos);
+    Vector4<float> clipp2 = one_extend(p2.pos);
+    Vector4<float> clipp3 = one_extend(p3.pos);
 
-    return ret;
-}
-template<bool textured = false>
-void draw_triangle(framebuffer& img, const Matrix4<float>& mat, const vertex& p1, const vertex& p2, const vertex& p3, const Image* texture = nullptr){
-    //Matrix4<float> mat = cam.matrix(img.resolution.x, img.resolution.y);
-    Vector4<float> clipp1 = to_vec4(p1.pos);clipp1 = (mat * clipp1).homogenize();
-    Vector4<float> clipp2 = to_vec4(p2.pos);clipp2 = (mat * clipp2).homogenize();
-    Vector4<float> clipp3 = to_vec4(p3.pos);clipp3 = (mat * clipp3).homogenize();
-    //std::cout << clipp1.transpose() << "\n\n";
     Vector2<int> p1_screen = img.clip2screen(Vector2<float>{clipp1.x, clipp1.y});
     Vector2<int> p2_screen = img.clip2screen(Vector2<float>{clipp2.x, clipp2.y});
     Vector2<int> p3_screen = img.clip2screen(Vector2<float>{clipp3.x, clipp3.y});
+
+        if(p1_screen.y > p2_screen.y){
+        std::swap(p1_screen, p2_screen);
+        std::swap(clipp1, clipp2);
+    }
+    if(p2_screen.y > p3_screen.y){
+        std::swap(p2_screen, p3_screen);
+        std::swap(clipp2, clipp3);
+    }
+    if(p1_screen.y > p2_screen.y){
+        std::swap(p1_screen, p2_screen);
+        std::swap(clipp1, clipp2);
+    }
     using Vector2i = Vector2<int>;
     using Vector2f = Vector2<float>;
     using Vector3f = Vector3<float>;
-    /*auto checkerboard = [](Vector2f x){
-        x *= 20.0f;
-        Vector2u xi = x.cast<unsigned>();
-        Array3f ret{(float)((xi.x() + xi.y()) & 1), 0, 0.0f};
-        return ret;
-    };
-    auto heat = [](Vector2f x){
-        Array3f ret{x.x(), x.y(), 1.0f - x.x() - x.y()};
-        return ret;
-    };*/
-    Vector2i mine = p1_screen.cwiseMin(p2_screen.cwiseMin(p3_screen)); 
+
+    Vector2i mine = p1_screen.cwiseMin(p2_screen.cwiseMin(p3_screen));//.cwiseMax(Vector2i{0,0}); 
     Vector2i maxe = (p1_screen.cwiseMax(p2_screen.cwiseMax(p3_screen))).cwiseMin(img.resolution.cast<int>());
     barycentric_triangle_function<float> bary(clipp1, clipp2, clipp3);
-    //#pragma omp parallel for collapse(2)
-    for(int i = mine.x;i <= maxe.x;i++){
-        for(int j = mine.y;j <= maxe.y;j++){
-            Vector2<float> clip = img.screen2clip(Vector2i{i, j});
+    for (int y = mine.y; y <= maxe.y; y++) {
+        int x1, x2;
+        if (y >= p1_screen.y && y <= p2_screen.y) {
+            float t12 = static_cast<float>(y - p1_screen.y) / (p2_screen.y - p1_screen.y);
+            float t13 = static_cast<float>(y - p1_screen.y) / (p3_screen.y - p1_screen.y);
+            x1 = p1_screen.x + t12 * (p2_screen.x - p1_screen.x);
+            x2 = p1_screen.x + t13 * (p3_screen.x - p1_screen.x);
+        }
+        else{
+            float t13 = static_cast<float>(y - p1_screen.y) / (p3_screen.y - p1_screen.y);
+            float t23 = static_cast<float>(y - p2_screen.y) / (p3_screen.y - p2_screen.y);
+            x1 = p1_screen.x + t13 * (p3_screen.x - p1_screen.x);
+            x2 = p2_screen.x + t23 * (p3_screen.x - p2_screen.x);
+        }
+        
+        if (x1 > x2) {
+            std::swap(x1, x2);
+        }
+        x1 -= 1;
+        x2 += 1;
+        //std::cout << "Y: " << y << " , Raschtering from " << x1 << " to " << x2 << "\n";
+        for (int x = x1; x <= x2; ++x) {
+            Vector2<float> clip = img.screen2clip(Vector2i{x, y});
             Vector3<float> linear = bary.linear(clip);
             if(linear.maxCoeff() <= 1.0f && linear.minCoeff() >= 0.0f){
                 Vector3f one_over_ws = linear * bary.one_over_ws;
@@ -533,22 +621,85 @@ void draw_triangle(framebuffer& img, const Matrix4<float>& mat, const vertex& p1
                 }
                 float zeval = bary.perspective_correct2(linear, one_over_ws, isum, clip, clipp1.z, clipp2.z, clipp3.z);
                 //std::cout << beval.transpose() << "\n";
-                img.paint_pixeli(i, j, Vector3<float>{frag_color.x,frag_color.y,frag_color.z}, 1.0f, zeval);
+                img.paint_pixeli(x, y, Vector3<float>{frag_color.x,frag_color.y,frag_color.z}, 1.0f, zeval);
             }
         }
     }
 }
-enum draw_mode{
-    nothing, triangles
-};
-static framebuffer* current_fb;
-static framebuffer* default_fb;
-static Image* active_texture;
-static draw_mode cmode;
-vertex::uv_t current_uv;
-vertex::color_t current_color;
-static std::vector<vertex> current_buffer;
-static std::stack<Matrix4<float>> matrix_stack;
+template<bool textured>
+void draw_triangle(framebuffer& img, const Matrix4<float>& mat, vertex p1, vertex p2, vertex p3, const Image* texture){
+    //Matrix4<float> mat = cam.matrix(img.resolution.x, img.resolution.y);
+    Vector4<float> clipp1 = one_extend(p1.pos);clipp1 = (mat * clipp1).homogenize();
+    Vector4<float> clipp2 = one_extend(p2.pos);clipp2 = (mat * clipp2).homogenize();
+    Vector4<float> clipp3 = one_extend(p3.pos);clipp3 = (mat * clipp3).homogenize();
+
+    //std::cout << clipp1.transpose() << "\n\n";
+    Vector2<int> p1_screen = img.clip2screen(Vector2<float>{clipp1.x, clipp1.y});
+    Vector2<int> p2_screen = img.clip2screen(Vector2<float>{clipp2.x, clipp2.y});
+    Vector2<int> p3_screen = img.clip2screen(Vector2<float>{clipp3.x, clipp3.y});
+
+    if(p1_screen.y > p2_screen.y){
+        std::swap(p1_screen, p2_screen);
+        std::swap(clipp1, clipp2);
+        std::swap(p1, p2);
+    }
+    if(p2_screen.y > p3_screen.y){
+        std::swap(p2_screen, p3_screen);
+        std::swap(clipp2, clipp3);
+        std::swap(p2, p3);
+    }
+    if(p1_screen.y > p2_screen.y){
+        std::swap(p1_screen, p2_screen);
+        std::swap(clipp1, clipp2);
+        std::swap(p1, p2);
+    }
+    using Vector2i = Vector2<int>;
+    using Vector2f = Vector2<float>;
+    using Vector3f = Vector3<float>;
+
+    Vector2i mine = p1_screen.cwiseMin(p2_screen.cwiseMin(p3_screen));//.cwiseMax(Vector2i{0,0}); 
+    Vector2i maxe = (p1_screen.cwiseMax(p2_screen.cwiseMax(p3_screen))).cwiseMin(img.resolution.cast<int>());
+    barycentric_triangle_function<float> bary(clipp1, clipp2, clipp3);
+    for (int y = mine.y; y <= maxe.y; y++) {
+        int x1, x2;
+        if (y >= p1_screen.y && y <= p2_screen.y) {
+            float t12 = static_cast<float>(y - p1_screen.y) / (p2_screen.y - p1_screen.y);
+            float t13 = static_cast<float>(y - p1_screen.y) / (p3_screen.y - p1_screen.y);
+            x1 = p1_screen.x + t12 * (p2_screen.x - p1_screen.x);
+            x2 = p1_screen.x + t13 * (p3_screen.x - p1_screen.x);
+        }
+        else{
+            float t13 = static_cast<float>(y - p1_screen.y) / (p3_screen.y - p1_screen.y);
+            float t23 = static_cast<float>(y - p2_screen.y) / (p3_screen.y - p2_screen.y);
+            x1 = p1_screen.x + t13 * (p3_screen.x - p1_screen.x);
+            x2 = p2_screen.x + t23 * (p3_screen.x - p2_screen.x);
+        }
+        
+        if (x1 > x2) {
+            std::swap(x1, x2);
+        }
+        x1 -= 1;
+        x2 += 1;
+        //std::cout << "Y: " << y << " , Raschtering from " << x1 << " to " << x2 << "\n";
+        for (int x = x1; x <= x2; ++x) {
+            Vector2<float> clip = img.screen2clip(Vector2i{x, y});
+            Vector3<float> linear = bary.linear(clip);
+            if(linear.maxCoeff() <= 1.0f && linear.minCoeff() >= 0.0f){
+                Vector3f one_over_ws = linear * bary.one_over_ws;
+                float isum = 1.0f / (one_over_ws.x + one_over_ws.y + one_over_ws.z);
+                Vector4<float> frag_color = zero_extend(bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.color, p2.color, p3.color));
+                if constexpr(textured){
+                    Vector2f beval = bary.perspective_correct2(linear, one_over_ws, isum, clip, p1.uv, p2.uv, p3.uv);
+                    //Vector2f beval = p1.uv * linear.x + p2.uv * linear.y + p3.uv * linear.z;
+                    frag_color *= texture2D(*texture, beval);
+                }
+                float zeval = bary.perspective_correct2(linear, one_over_ws, isum, clip, clipp1.z, clipp2.z, clipp3.z);
+                //std::cout << beval.transpose() << "\n";
+                img.paint_pixeli(x, y, Vector3<float>{frag_color.x,frag_color.y,frag_color.z}, 1.0f, zeval);
+            }
+        }
+    }
+}
 void rlBegin(draw_mode mode){
     current_buffer.resize(1);
     cmode = mode;
@@ -615,6 +766,37 @@ void DrawTriangleStrip(const Vector2<float> *points, int pointCount, Color color
         rlEnd();
     }
 }
+void DrawBillboardLineEx(Vector3<float> startPos, Vector3<float> endPos, float thick, Color color){
+    using std::sqrt;
+    using std::hypot;
+    Vector4<float> sph = one_extend(startPos);
+    Vector4<float> eph = one_extend(endPos);
+    Matrix4<float> mat = matrix_stack.top();
+    Vector4 sph_trf = (mat * sph).homogenize();
+    Vector4 eph_trf = (mat * eph).homogenize();
+    Vector2<float> delta = {endPos.x - startPos.x, endPos.y - startPos.y};
+
+    float length = hypot(delta.x, delta.y);
+
+    if ((length > 0) && (thick > 0))
+    {
+        float scale = thick/(2*length);
+        Vector2<float> radius = { -scale*delta.y, scale*delta.x };
+        Vector4<float> strip[4] = {
+            { sph_trf.x - radius.x, sph_trf.y - radius.y , sph_trf.z},
+            { sph_trf.x + radius.x, sph_trf.y + radius.y , sph_trf.z},
+            { eph_trf.x - radius.x, eph_trf.y - radius.y , sph_trf.z},
+            { eph_trf.x + radius.x, eph_trf.y + radius.y , sph_trf.z}
+        };
+        vertex v1{.pos = strip[0].head3(), .uv = Vector2<float>{0,0}, .color = Vector3<float>{color.x / 255.0f, color.y / 255.0f, color.z / 255.0f}};
+        vertex v2{.pos = strip[1].head3(), .uv = Vector2<float>{0,0}, .color = Vector3<float>{color.x / 255.0f, color.y / 255.0f, color.z / 255.0f}};
+        vertex v3{.pos = strip[2].head3(), .uv = Vector2<float>{0,0}, .color = Vector3<float>{color.x / 255.0f, color.y / 255.0f, color.z / 255.0f}};
+        vertex v4{.pos = strip[3].head3(), .uv = Vector2<float>{0,0}, .color = Vector3<float>{color.x / 255.0f, color.y / 255.0f, color.z / 255.0f}};
+        draw_triangle_already_projected<false>(*current_fb, v1, v2, v3);
+        draw_triangle_already_projected<false>(*current_fb, v2, v3, v4);
+        //DrawTriangleStrip(strip, 4, color);
+    }
+}
 void DrawLineEx(Vector2<float> startPos, Vector2<float> endPos, float thick, Color color){
     using std::sqrt;
     using std::hypot;
@@ -658,7 +840,7 @@ void outputPPM(const framebuffer& fb, const std::string& filename) {
 
     for (unsigned int j = 0; j < fb.resolution.y; ++j) {
         for (unsigned int i = 0; i < fb.resolution.x; ++i) {
-            auto color = fb.color_buffer[i + j * fb.resolution.x];
+            auto color = fb.color_buffer(i, j);
             int r = static_cast<int>(color.x * 255);
             int g = static_cast<int>(color.y * 255);
             int b = static_cast<int>(color.z * 255);
@@ -715,7 +897,7 @@ void outputBMP(const framebuffer& fb, const std::string& filename) {
     // Write pixel data in BGR order
     for (int j = height - 1; j >= 0; j--) {
         for (int i = 0; i < width; i++) {
-            auto color = fb.color_buffer[i + j * width];
+            auto color = fb.color_buffer(i, j);
             unsigned char b = static_cast<unsigned char>(std::max(std::min(color.x, 1.0f), 0.0f) * 255);
             unsigned char g = static_cast<unsigned char>(std::max(std::min(color.y, 1.0f), 0.0f) * 255);
             unsigned char r = static_cast<unsigned char>(std::max(std::min(color.z, 1.0f), 0.0f) * 255);
@@ -727,3 +909,5 @@ void outputBMP(const framebuffer& fb, const std::string& filename) {
 
     file.close();
 }
+#endif
+#endif

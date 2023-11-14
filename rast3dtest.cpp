@@ -1,3 +1,4 @@
+#define FRAST3D_IMPLEMENTATION
 #include "rast3d.hpp"
 #include <iostream>
 #include <glm/glm.hpp>
@@ -37,28 +38,29 @@ int main(){
     Vector4<float> p{10,0,0,1};
     //std::cout << "Trfed: " << (matrix_stack.top() * p) << "\n";
     //draw_triangle(*current_fb, Matrix4<float>(1.0f), vert1, vert2, vert3);
-    Image img = GenImageChecked(10, 10, 2, 2, Color{255,0,0,255},Color{0,255,0,255});
-    camera cam{.pos = vec3{0,0,3}, .pitch = 0, .yaw = -M_PI_2 * 0.8};
+    Image img = GenImageChecked(10, 10, 1, 1, Color{255,0,255,255},Color{0,255,0,255});
+    camera cam{.pos = vec3{0,0,10}, .pitch = 0, .yaw = -M_PI_2};
     //std::cout << "TRF:\n" << (cam.matrix(960,540) * p) << "\n";
-    //matrix_stack.push(cam.matrix(w, h));
+    matrix_stack.push(cam.matrix(w, h));
+    //DrawBillboardLineEx(Vector3<float>{0,0,-5}, Vector3<float>{1,1,-5}, 0.1f, Color{255,255,0,255});
     set_texture(&img);
-    /*rlBegin(triangles);
-    rlVertex3f(0,0,2);
+    rlBegin(triangles);
+    rlVertex3f(0,0,0);
     rlColor3f(1,1,1);
     rlTexCoord2f(0, 0);
 
-    rlVertex2f(5,0);
+    rlVertex3f(5,0,0);
     rlColor3f(1,1,1);
-    rlTexCoord2f(0, 1);
+    rlTexCoord2f(1, 0);
     
-    rlVertex3f(5,5,-5);
+    rlVertex3f(5,5,0);
     rlColor3f(1,1,1);
     rlTexCoord2f(1, 1);
-    rlEnd();*/
+    rlEnd();
     auto t1 = _bm_nanoTime();
     for(int i = 0;i < 1000;i++){
         //DrawLineEx(vec2{float(gen() % w),float(gen() % h)}, vec2{float(gen() % w),float(gen() % h)},5.0f, Color{255,0,0,255});
-        DrawLineEx(vec2{float(500),float(0)}, vec2{float(1500),float(1000)},5.0f, Color{255,0,0,255});
+        //DrawLineEx(vec2{float(2000), float(0)}, vec2{float(0), float(1000)},5.0f, Color{255,0,0,255});
     }
     auto t2 = _bm_nanoTime();
     std::cout << (t2 - t1) / 1000 / 1000.0 << " ms\n";

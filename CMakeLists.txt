@@ -3,13 +3,13 @@ cmake_minimum_required(VERSION 3.15)
 project(Rast3D)
 
 include(FetchContent)
-
+add_compile_options (-fdiagnostics-color=always)
 # Fetch and set up SFML
 set(BUILD_SHARED_LIBS FALSE)
 set(SFML_STATIC_LIBRARIES TRUE)
 set(SFML_BUILD_AUDIO FALSE)
 set(SFML_BUILD_NETWORK FALSE)
-set(CMAKE_CXX_FLAGS_DEBUG    "-g3 -fsanitize=undefined,address")
+set(CMAKE_CXX_FLAGS_DEBUG    "-g3")
 set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -DNDEBUG -funroll-loops -fopenmp")
 FetchContent_Declare(
 	SFML
