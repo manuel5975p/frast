@@ -1,8 +1,10 @@
 #ifndef FRAST3D_HPP
 #define FRAST3D_HPP
 #include <cmath>
+#ifdef FRAST3D_IMPLEMENTATION
 #include <iostream>
 #include <fstream>
+#endif
 #include <vector>
 #include <array>
 #include <cassert>
@@ -17,6 +19,7 @@ template<typename T1, typename T2>
 using bigger = typename bigger_impl<T1, T2>::type;
 template<typename T>
 struct Vector2{
+    using scalar = T;
     T x, y;
     
     #define OP2(X) Vector2<T> operator X(Vector2<T> o)const noexcept{return Vector2{x X o.x, y X o.y};}
@@ -62,7 +65,8 @@ struct Vector2{
     }
 };
 template<typename T>
-struct Vector3{
+struct  Vector3{
+    using scalar = T;
     T x, y, z;
     
     #define OP3(X) Vector3<T> operator X(Vector3<T> o)const noexcept{return Vector3{x X o.x, y X o.y, z X o.z};}
@@ -105,9 +109,14 @@ struct Vector3{
     T minCoeff()const noexcept{
         return std::min(std::min(x, y), z);
     }
+    template<typename O>
+    Vector3<O> cast()const noexcept{
+        return Vector3<O>{O(x), O(y), O(z)};
+    }
 };
 template<typename T>
 struct Vector4{
+    using scalar = T;
     T x, y, z, w;
     #define OP4(X) Vector4<T> operator X(Vector4<T> o)const noexcept{return Vector4{x X o.x, y X o.y, z X o.z, w X o.w};}
     #define OPA4(X) Vector4<T>& operator X(Vector4<T> o)noexcept{x X o.x;y X o.y;z X o.z;w X o.w;return *this;}
@@ -146,6 +155,10 @@ struct Vector4{
         ret.z *= iw;
         return ret;
     }
+    template<typename O>
+    Vector4<O> cast()const noexcept{
+        return Vector4<O>{O(x), O(y), O(z), O(w)};
+    }
 };
 
 template<typename T>
@@ -177,7 +190,7 @@ template<typename T>
 Vector3<T> normalize(const Vector3<T>& v){
     using std::sqrt;
 
-    T n = v.x * v.x + v.y * v.y + v.z * v.z;
+    T n = v.dot(v);
     T isv = 1.0 / sqrt(n);
     return v * isv;
 }
@@ -236,7 +249,7 @@ struct Matrix4{
         return s;
     }
     Matrix4<T> operator-()const noexcept{Matrix4<T> ret;for(size_t i = 0;i < 16;i++){ret[i] = -(this->operator[](i));}}
-;};
+};
 template<typename T, typename R>
 Matrix4<bigger<T, R>> operator*(const Matrix4<T>& a, const Matrix4<R>& b){
     Matrix4<bigger<T, R>> ret(0);
@@ -252,11 +265,19 @@ Matrix4<bigger<T, R>> operator*(const Matrix4<T>& a, const Matrix4<R>& b){
 template<typename T, typename R>
 Vector4<bigger<T, R>> operator*(const Matrix4<T>& a, const Vector4<R>& b){
     Vector4<bigger<T, R>> ret{0,0,0,0};
+    #ifdef __AVX__
     for(size_t i = 0;i < 4;i++){
         for(size_t j = 0;j < 4;j++){
             ret[j] += a(j, i) * b[i];
         }
     }
+    #else
+    for(size_t i = 0;i < 4;i++){
+        for(size_t j = 0;j < 4;j++){
+            ret[j] += a(j, i) * b[i];
+        }
+    }
+    #endif
     return ret;
 }
 template<typename T>
@@ -308,6 +329,14 @@ struct camera{
     using mat4 = Matrix4<float>;
     vec3 pos;
     float pitch, yaw;
+    camera(vec3 p, float pt, float y) : pos(p), pitch(pt), yaw(y){
+
+    }
+    camera(vec3 p, vec3 look) : pos(p){
+        look = normalize(look);
+        pitch = std::asin(look.y);
+        yaw = std::asin(look.z / std::cos(pitch));
+    }
     vec3 look_dir()const noexcept{
         vec3 fwd{std::cos(yaw) * std::cos(pitch), std::sin(pitch), std::sin(yaw) * std::cos(pitch)};
         return fwd;
@@ -328,7 +357,7 @@ struct camera{
         return ret;
     }
     mat4 perspective_matrix(float width, float height)const noexcept{
-        return perspectiveRH_NO(1.0f, width / height, 0.05f, 500.0f);
+        return perspectiveRH_NO(1.0f, width / height, 0.1f, 100.0f);
     }
     mat4 matrix(float width, float height)const noexcept{
         return perspective_matrix(width, height) * view_matrix();
@@ -382,7 +411,7 @@ using Image = basic_image<Color>;
 struct framebuffer{
     using color_t = Vector3<float>;
     using depth_t = float;
-
+    constexpr static depth_t empty_depth = depth_t(INFINITY);
     Vector2<unsigned int> resolution;
     Vector2<unsigned int> resolution_minus_one;
     
@@ -394,7 +423,7 @@ struct framebuffer{
         assert(w && h && (w < 65356) && (h < 65356) && "Need positive and nonzero extents and reasonably big");
         two_over_resolution.x = 2.0f / resolution.x;
         two_over_resolution.y = 2.0f / resolution.y;
-        std::fill(depth_buffer.data.get(), depth_buffer.data.get() + w * h, depth_t(INFINITY));
+        std::fill(depth_buffer.data.get(), depth_buffer.data.get() + w * h, empty_depth);
     }
     void paint_pixeli(unsigned i, unsigned j, const color_t& color, float alpha, float depth){
         if(i >= resolution.x || j >= resolution.y){
@@ -499,21 +528,25 @@ enum draw_mode{
 Image GenImageChecked(int width, int height, int checksX, int checksY, Color col1, Color col2);
 Vector4<float> texture2D(const Image& img, const Vector2<float>& uv);
 template<bool textured>
-void draw_triangle_already_projected(framebuffer& img, const vertex& p1, const vertex& p2, const vertex& p3, const Image* texture = nullptr);
+void draw_triangle_already_projected(framebuffer& img, vertex p1, vertex p2, vertex p3, const Image* texture = nullptr);
 template<bool textured = false>
 void draw_triangle(framebuffer& img, const Matrix4<float>& mat, vertex p1, vertex p2, vertex p3, const Image* texture = nullptr);
+void depthblend_framebuffers(framebuffer& target, const framebuffer& op);
 void rlBegin(draw_mode mode);
 void rlVertex3f(float x, float y, float z);
 void rlVertex2f(float x, float y);
 void rlColor3f(float r, float g, float b);
 void rlTexCoord2f(float r, float g);
 void rlEnd();
+void BeginTextureMode(framebuffer& fb);
+void EndTextureMode();
 void set_texture(Image* image);
 void unset_texture();
 void DrawTriangleStrip(const Vector2<float> *points, int pointCount, Color color);
 void DrawBillboardLineEx(Vector3<float> startPos, Vector3<float> endPos, float thick, Color color);
 void DrawLineEx(Vector2<float> startPos, Vector2<float> endPos, float thick, Color color);
 void DrawRectangle(Vector2<float> pos, Vector2<float> ext);
+void ClearBackground(Color col);
 extern framebuffer* current_fb;
 extern framebuffer* default_fb;
 extern Image* active_texture;
@@ -548,6 +581,11 @@ Vector4<float> texture2D(const Image& img, const Vector2<float>& uv){
 
     return ret;
 }
+void ClearBackground(Color colu){
+    Vector3<float> col(colu.cast<float>().head3() * (1.0f / 255.0f));
+    std::fill(current_fb->depth_buffer.data.get(), current_fb->depth_buffer.data.get() + current_fb->resolution.x * current_fb->resolution.y, framebuffer::empty_depth);
+    std::fill(current_fb->color_buffer.data.get(), current_fb->color_buffer.data.get() + current_fb->resolution.x * current_fb->resolution.y, col);            
+}
 Image GenImageChecked(int width, int height, int checksX, int checksY, Color col1, Color col2){
     std::unique_ptr<Color[]> pixels = std::make_unique<Color[]>(width * height);
 
@@ -559,8 +597,28 @@ Image GenImageChecked(int width, int height, int checksX, int checksY, Color col
     }
     return Image(width, height, std::move(pixels));
 }
+void depthblend_framebuffers(framebuffer& target, const framebuffer& op){
+    assert(target.resolution.x == op.resolution.x);
+    assert(target.resolution.y == op.resolution.y);
+    const size_t bound = op.resolution.x * op.resolution.y;
+    for(size_t i = 0; i < bound;i++){
+        framebuffer::color_t::scalar op_blendsover = op.depth_buffer.data[i] < target.depth_buffer.data[i];
+        framebuffer::color_t::scalar one_minus_blendsover = framebuffer::color_t::scalar(1) - op_blendsover;
+        target.color_buffer.data[i] = op_blendsover * op.color_buffer.data[i] + target.color_buffer.data[i] * one_minus_blendsover;
+        target.depth_buffer.data[i] = std::min(op.depth_buffer.data[i], target.depth_buffer.data[i]);
+    }
+}
+template<typename T>
+bool is_in_clip_cube(const Vector3<T>& x){
+    return x.x >= T(-1) &&
+           x.x <= T( 1) &&
+           x.y >= T(-1) &&
+           x.y <= T( 1) &&
+           x.z >= T(-1) &&
+           x.z <= T( 1);
+}
 template<bool textured>
-void draw_triangle_already_projected(framebuffer& img, const vertex& p1, const vertex& p2, const vertex& p3, const Image* texture){
+void draw_triangle_already_projected(framebuffer& img, vertex p1, vertex p2, vertex p3, const Image* texture){
     Vector4<float> clipp1 = one_extend(p1.pos);
     Vector4<float> clipp2 = one_extend(p2.pos);
     Vector4<float> clipp3 = one_extend(p3.pos);
@@ -569,17 +627,20 @@ void draw_triangle_already_projected(framebuffer& img, const vertex& p1, const v
     Vector2<int> p2_screen = img.clip2screen(Vector2<float>{clipp2.x, clipp2.y});
     Vector2<int> p3_screen = img.clip2screen(Vector2<float>{clipp3.x, clipp3.y});
 
-        if(p1_screen.y > p2_screen.y){
+    if(p1_screen.y > p2_screen.y){
         std::swap(p1_screen, p2_screen);
         std::swap(clipp1, clipp2);
+        std::swap(p1, p2);
     }
     if(p2_screen.y > p3_screen.y){
         std::swap(p2_screen, p3_screen);
         std::swap(clipp2, clipp3);
+        std::swap(p2, p3);
     }
     if(p1_screen.y > p2_screen.y){
         std::swap(p1_screen, p2_screen);
         std::swap(clipp1, clipp2);
+        std::swap(p1, p2);
     }
     using Vector2i = Vector2<int>;
     using Vector2f = Vector2<float>;
@@ -633,7 +694,9 @@ void draw_triangle(framebuffer& img, const Matrix4<float>& mat, vertex p1, verte
     Vector4<float> clipp1 = one_extend(p1.pos);clipp1 = (mat * clipp1).homogenize();
     Vector4<float> clipp2 = one_extend(p2.pos);clipp2 = (mat * clipp2).homogenize();
     Vector4<float> clipp3 = one_extend(p3.pos);clipp3 = (mat * clipp3).homogenize();
-
+    if(!(is_in_clip_cube(clipp1.head3()) || is_in_clip_cube(clipp2.head3()) || is_in_clip_cube(clipp3.head3()))){
+        return;
+    }
     //std::cout << clipp1.transpose() << "\n\n";
     Vector2<int> p1_screen = img.clip2screen(Vector2<float>{clipp1.x, clipp1.y});
     Vector2<int> p2_screen = img.clip2screen(Vector2<float>{clipp2.x, clipp2.y});
@@ -696,7 +759,8 @@ void draw_triangle(framebuffer& img, const Matrix4<float>& mat, vertex p1, verte
                 }
                 float zeval = bary.perspective_correct2(linear, one_over_ws, isum, clip, clipp1.z, clipp2.z, clipp3.z);
                 //std::cout << beval.transpose() << "\n";
-                img.paint_pixeli(x, y, Vector3<float>{frag_color.x,frag_color.y,frag_color.z}, 1.0f, zeval);
+                if(zeval <= 1.0 && zeval >= -1.0)
+                    img.paint_pixeli(x, y, Vector3<float>{frag_color.x,frag_color.y,frag_color.z}, 1.0f, zeval);
             }
         }
     }
@@ -723,6 +787,12 @@ void rlTexCoord2f(float r, float g){
     if(!current_buffer.empty()){
         current_buffer.back().uv = vertex::uv_t{r, g};
     }
+}
+void BeginTextureMode(framebuffer& fb){
+    current_fb = &fb;
+}
+void EndTextureMode(){
+    current_fb = default_fb;
 }
 void set_texture(Image* image){
     active_texture = image;
