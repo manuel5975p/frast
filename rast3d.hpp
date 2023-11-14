@@ -321,8 +321,9 @@ struct camera{
     mat4 view_matrix()const noexcept{
         vec3 up       {0,1,0};
         vec3 fwd      {std::cos(yaw) * std::cos(pitch), std::sin(pitch), std::sin(yaw) * std::cos(pitch)};
-        vec3 realup = {fwd.cross(fwd.cross(up))};
-        vec3 right =  fwd.cross(realup);
+
+        //[[maybe_unused]] vec3 realup = {fwd.cross(fwd.cross(up))};
+        //[[maybe_unused]] vec3 right =  fwd.cross(realup);
         mat4 ret = lookAt(pos, pos + fwd, up);
         return ret;
     }
@@ -410,10 +411,10 @@ struct framebuffer{
         color_t prevc = color_buffer(i, j);
         color_buffer(i, j) = color * alpha + prevc * (1.0f - alpha);
     }
-    void paint_pixel(float x, float y, const color_t& color, float alpha){
+    void paint_pixel(float x, float y, const color_t& color, float alpha, float depth){
         float xnrm = (x + 1) * 0.5f * float(resolution.x);
         float ynrm = (y + 1) * 0.5f * float(resolution.y);
-        paint_pixel((unsigned)xnrm, (unsigned)ynrm, color, alpha);
+        paint_pixeli((unsigned)xnrm, (unsigned)ynrm, color, alpha, depth);
     }
     Vector2<int> clip2screen(Vector2<float> x)const noexcept{
         x.y = -x.y;
@@ -455,14 +456,14 @@ struct barycentric_triangle_function{
         return ret / one_over_w.sum();
     }
     template<typename attribute>
-    attribute perspective_correct(const vec3& lin, const vec2& p, attribute av1, attribute av2, attribute av3){
+    attribute perspective_correct(const vec3& lin, const vec2&, attribute av1, attribute av2, attribute av3){
         vec3 one_over_w = one_over_ws.cwiseProduct(lin);
         attribute ret;
         ret = lin[0] * av1 * one_over_ws[0] + lin[1] * av2 * one_over_ws[1] + lin[2] * av3 * one_over_ws[2];
         return ret / one_over_w.sum();
     }
     template<typename attribute>
-    attribute perspective_correct2(const vec3& lin, const vec3& one_over_w, _scalar isum, const vec2& p, attribute av1, attribute av2, attribute av3){
+    attribute perspective_correct2(const vec3& lin, const vec3& /*one_over_w*/, _scalar isum, const vec2& /*p*/, attribute av1, attribute av2, attribute av3){
         attribute ret;
         ret = lin[0] * av1 * one_over_ws[0] + lin[1] * av2 * one_over_ws[1] + lin[2] * av3 * one_over_ws[2];
         return ret * isum;
@@ -783,10 +784,10 @@ void DrawBillboardLineEx(Vector3<float> startPos, Vector3<float> endPos, float t
         float scale = thick/(2*length);
         Vector2<float> radius = { -scale*delta.y, scale*delta.x };
         Vector4<float> strip[4] = {
-            { sph_trf.x - radius.x, sph_trf.y - radius.y , sph_trf.z},
-            { sph_trf.x + radius.x, sph_trf.y + radius.y , sph_trf.z},
-            { eph_trf.x - radius.x, eph_trf.y - radius.y , sph_trf.z},
-            { eph_trf.x + radius.x, eph_trf.y + radius.y , sph_trf.z}
+            { sph_trf.x - radius.x, sph_trf.y - radius.y , sph_trf.z, /*w needed?*/ 0.0f},
+            { sph_trf.x + radius.x, sph_trf.y + radius.y , sph_trf.z, /*w needed?*/ 0.0f},
+            { eph_trf.x - radius.x, eph_trf.y - radius.y , sph_trf.z, /*w needed?*/ 0.0f},
+            { eph_trf.x + radius.x, eph_trf.y + radius.y , sph_trf.z, /*w needed?*/ 0.0f}
         };
         vertex v1{.pos = strip[0].head3(), .uv = Vector2<float>{0,0}, .color = Vector3<float>{color.x / 255.0f, color.y / 255.0f, color.z / 255.0f}};
         vertex v2{.pos = strip[1].head3(), .uv = Vector2<float>{0,0}, .color = Vector3<float>{color.x / 255.0f, color.y / 255.0f, color.z / 255.0f}};
@@ -819,7 +820,8 @@ void DrawLineEx(Vector2<float> startPos, Vector2<float> endPos, float thick, Col
 }
 
 void DrawRectangle(Vector2<float> pos, Vector2<float> ext){
-
+    (void)pos;
+    (void)ext;
 }
 void InitWindow(unsigned w, unsigned h){
     default_fb = new framebuffer(w, h);
