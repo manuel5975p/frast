@@ -66,7 +66,7 @@ int main(){
     //vertex vert4{.pos = vec3{-1.0f, -1.0,  0.0f}, .uv = vec2{0,0},.color = vec3{0,0,1}};
     //vertex vert5{.pos = vec3{ 1.0f, -1.0,  0.0f}, .uv = vec2{0,1.0f},.color = vec3{0,0.5,1}};
     //vertex vert6{.pos = vec3{ 1.0f,  1.0,  0.0f}, .uv = vec2{1.0f,1.0f},.color = vec3{0,1,1}};
-    constexpr unsigned w = 2560, h = 1440;
+    constexpr unsigned w = 1280, h = 720;
     InitWindow(w, h);
     framebuffer custom(w, h);
     //Vector4<float> p{10,0,0,1};
@@ -85,8 +85,9 @@ int main(){
     matrix_stack.push(cam.matrix(w, h));
     //DrawBillboardLineEx(Vector3<float>{0,0,-5}, Vector3<float>{1,1,-5}, 0.1f, Color{255,255,0,255});
     set_texture(&img);
-    ClearBackground(Color{20,20,20,255});
-    rlBegin(triangles);
+    auto t1 = _bm_nanoTime();
+    ClearBackground(Color{20,20,90,255});
+    /*rlBegin(triangles);
     rlVertex3f(0,0,2);
     rlColor3f(1,1,1);
     rlTexCoord2f(0, 0);
@@ -98,7 +99,9 @@ int main(){
     rlVertex3f(5,5,-2);
     rlColor3f(1,1,1);
     rlTexCoord2f(1, 1);
-    rlEnd();
+    rlEnd();*/
+    Mesh sfir = GenMeshSphere(0.5f, 8, 8);
+    DrawMesh(sfir, Matrix4<float>(1));
     BeginTextureMode(custom);
     ClearBackground(Color{20,20,20,255});
     set_texture(&img2);
@@ -117,7 +120,12 @@ int main(){
     rlEnd();
     DrawBillboardLineEx(vec3{5,5,-1.5}, vec3{-5,-5,-1.5}, 0.1f, Color{255,255,255,255});
     EndTextureMode();
-    depthblend_framebuffers(*default_fb, custom);
-    
-    outputBMP(*current_fb, "klonk.bmp");
+    //depthblend_framebuffers(*default_fb, custom);
+    auto t2 = _bm_nanoTime();
+    std::cout << "Time to draw: " << (t2 - t1) / 1000 / 1000.0 << " ms\n";
+    //outputBMP(*current_fb, "klonk.bmp");
+    t1 = _bm_nanoTime();
+    outputPNG(*current_fb, "klonk.png");
+    t2 = _bm_nanoTime();
+    std::cout << "Time to export: " << (t2 - t1) / 1000 / 1000.0 << " ms\n";
 }
