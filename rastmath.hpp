@@ -8,6 +8,7 @@
 #ifndef KOKKOS_INLINE_FUNCTION
 #define KOKKOS_INLINE_FUNCTION
 #endif
+namespace rm{
 template<typename T1, typename T2>
 struct bigger_impl{
     using type = std::remove_all_extents_t<decltype(std::remove_all_extents_t<T1>{} + std::remove_all_extents_t<T2>{})>;
@@ -320,4 +321,5 @@ struct camera{
         return perspective_matrix(width, height) * view_matrix();
     }
 };
+}
 #endif
