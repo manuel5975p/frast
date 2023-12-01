@@ -6,7 +6,7 @@
 #include <glad/glad.h>
 #include <vector>
 #include <iostream>
-#include <map>
+#include <unordered_map>
 struct shader {
     GLuint shaderProgram;
     shader() : shaderProgram(0){}
@@ -105,6 +105,10 @@ struct shader {
         glUniformMatrix4fv(uniformLocation, 1, GL_FALSE, vals);
     }
 };
+using Color = rm::Vector<float, 4>;
+namespace colors{
+    constexpr Color white{1.0f,1.0f,1.0f,1.0f};
+}
 struct egl_config{
     EGLint surface_type;
     EGLint blue_size;
@@ -171,6 +175,46 @@ struct sphere_info{
     rm::Vector<float, 3> color;
     float radius;
 };
+class Image {
+public:
+    int width;  ///< Width of the image.
+    int height; ///< Height of the image.
+    std::vector<unsigned char> data; ///< Image data in RGBA format.
+
+    /// \brief Default constructor for Image class.
+    Image() : width(0), height(0) {}
+
+    /// \brief Constructs an Image with the given width and height.
+    Image(int width, int height) : width(width), height(height) {
+        // Resize the data vector to hold RGBA values for each pixel.
+        data.resize(width * height * 4, 0);
+    }
+
+    /// \brief Sets the RGBA values of a pixel in the image.
+    void setPixel(int x, int y, unsigned char r, unsigned char g, unsigned char b, unsigned char a = 255) {
+        if (x < 0 || x >= width || y < 0 || y >= height) {
+            std::cerr << "Error: Attempted to set pixel outside the bounds of the image." << std::endl;
+            return;
+        }
+
+        int index = (y * width + x) * 4; // Calculate the index for the pixel in the 1D data array.
+        data[index] = r;
+        data[index + 1] = g;
+        data[index + 2] = b;
+        data[index + 3] = a;
+    }
+
+    /// \brief Overloaded stream insertion operator for printing information about the image.
+    friend std::ostream& operator<<(std::ostream& os, const Image& image) {
+        os << "Image Information:" << std::endl;
+        os << "Width: " << image.width << std::endl;
+        os << "Height: " << image.height << std::endl;
+        os << "Data Size: " << image.data.size() << " bytes" << std::endl;
+        return os;
+    }
+
+    /// \brief Converts the image to a Texture.
+};
 struct Texture {
     GLuint id; ///< OpenGL ID for the texture.
     int width; ///< Width of the texture.
@@ -182,8 +226,11 @@ struct Texture {
 
     /// \brief Constructs a Texture with the given width, height, and format.
     Texture(int width, int height, GLenum format = GL_RGBA);
+    Texture(const Image& img) : Texture(img.width, img.height, GL_RGBA) {
+        update(img.data.data());
+    }
 
-    void update(unsigned char* data);
+    void update(const unsigned char* data);
 
 };
 
@@ -214,6 +261,12 @@ struct Character {
     rm::Vector<int, 2>   Bearing;   // Offset from baseline to left/top of glyph
     unsigned int Advance;   // Horizontal offset to advance to next glyph
 };
+
+struct Font{
+    std::unordered_map<char32_t, Character> character_map;
+    unsigned int loaded_scale;
+};
+
 struct rendercache{
     rm::camera cam;
     rm::Matrix<float, 4, 4> screen_mat;
@@ -255,15 +308,17 @@ struct rendercache{
         line_data.clear();
         sphere_data.clear();
     }
-    void draw_rectangle(const Texture& tex, float x, float y, float scale);
-    void draw_text(const std::string& text, float x, float y, float scale, const std::map<char32_t, Character>& characters);
+    void draw_billboard(const Texture& tex, rm::Vector<float, 3> pos, float scale, Color col = colors::white);
+    void draw_rectangle(const Texture& tex, float x, float y, float scale, Color col = colors::white);
+    void draw_text(const std::string& text, float x, float y, float scale, const Font& characters, Color col = colors::white);
+    void draw_text_billboard(const std::string& text, rm::Vector<float, 3> pos, float scale, const Font& characters, Color col = colors::white);
 
 };
 extern rendercache rc;
 void ClearFrame();
 void LookAt(rm::Vector<float, 3> pos, rm::Vector<float, 3> look_dir);
 
-std::map<char32_t, Character> LoadFont();
+Font LoadFont(std::string path, unsigned int size);
 vaovbo to_vao(const Mesh& mesh, float* offsets, size_t count);
 
 #endif

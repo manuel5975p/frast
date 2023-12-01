@@ -262,7 +262,7 @@ void rendercache::draw() {
     }
     spheres.destroy();
 }
-void Texture::update(unsigned char* data){
+void Texture::update(const unsigned char* data){
     if(format == GL_RED){
         glBindTexture(GL_TEXTURE_2D, this->id);  
         glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
@@ -272,13 +272,34 @@ void Texture::update(unsigned char* data){
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
     }
 }
-void rendercache::draw_rectangle(const Texture& tex, float x, float y, float scale){
+void rendercache::draw_text_billboard(const std::string& text, rm::Vector<float, 3> pos, float scale, const Font& characters, Color col){
+
+
+    rm::Vector<float, 4> homog = pos.one_extend(); // Careful, this logic is spaghettefied to somewhere else
+    rm::Vector<float, 4> clip = this->cam.matrix(width, height) * homog;
+    clip[0] *= 1.0f / clip.w();
+    clip[1] *= 1.0f / clip.w();
+    clip[2] *= 1.0f / clip.w();
+    rm::Vector<float, 2> back_to_screen{(clip.x() + 1.0f) * width / 2.0f, height - (clip.y() + 1.0f) * height / 2.0f};
+    draw_text(text, back_to_screen.x(), back_to_screen.y(), scale / clip.w(), characters, col);
+
+}
+void rendercache::draw_billboard(const Texture& tex, rm::Vector<float, 3> pos, float scale, Color col){
+    rm::Vector<float, 4> homog = pos.one_extend();
+    rm::Vector<float, 4> clip = this->cam.matrix(width, height) * homog;
+    clip[0] *= 1.0f / clip.w();
+    clip[1] *= 1.0f / clip.w();
+    clip[2] *= 1.0f / clip.w();
+    rm::Vector<float, 2> back_to_screen{(clip.x() + 1.0f) * width / 2.0f, height - (clip.y() + 1.0f) * height / 2.0f};
+    draw_rectangle(tex, back_to_screen.x(), back_to_screen.y(), scale / clip.w(), col);
+}
+void rendercache::draw_rectangle(const Texture& tex, float x, float y, float scale, Color col){
     // Define vertex data for a rectangle
     GLfloat vertices[] = {
-         x, y, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,  // bottom left
-         x, y + scale * tex.height, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f,  // top left
-         x + scale * tex.width, y, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,  // bottom right
-         x + scale * tex.width, y + scale * tex.height, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f  // top right
+         x, y, 0.0f, 0.0f, col.x(), col.y(), col.z(),  // bottom left
+         x, y + scale * tex.height, 0.0f, 1.0f, col.x(), col.y(), col.z(),  // top left
+         x + scale * tex.width, y, 1.0f, 0.0f, col.x(), col.y(), col.z(),  // bottom right
+         x + scale * tex.width, y + scale * tex.height, 1.0f, 1.0f, col.x(), col.y(), col.z()  // top right
     };
 
     // Create vertex buffer object (VBO)
@@ -356,7 +377,7 @@ int GetCodepointNext(const char *text, int *codepointSize){
 
     return codepoint;
 }
-void rendercache::draw_text(const std::string& _text, float x, float y, float scale, const std::map<char32_t, Character>& characters) {
+void rendercache::draw_text(const std::string& _text, float x, float y, float scale, const Font& font, Color col) {
     float xOffset = x;
     const char* text = _text.c_str();
     for (;;) {
@@ -364,42 +385,43 @@ void rendercache::draw_text(const std::string& _text, float x, float y, float sc
         if(*text == 0)break;
         char32_t c = GetCodepointNext(text, &bytes);
         text += bytes;
-        auto it = characters.find(c);
+        auto it = font.character_map.find(c);
 
-        if (it != characters.end()) {
+        if (it != font.character_map.end()) {
             const Character& character = it->second;
             //std::cout << "Char: " << c << ", height: " << character.Size[1] << ", bearing: " << character.Bearing[1] << "\n";
             float xPos = xOffset + character.Bearing[0] * scale;
             float yPos = y - character.Bearing[1] * scale;
 
-            draw_rectangle(character.tex, xPos, yPos, scale);
+            draw_rectangle(character.tex, xPos, yPos, scale, col);
 
             // Advance the x position
-            xOffset += (character.Advance >> 6) * scale;
+            xOffset += character.Advance * (scale * (1.0f / 64.0f));
         }
     }
 }
-std::map<char32_t, Character> LoadFont(){
-    std::map<char32_t, Character> Characters;
+
+Font LoadFont(std::string path, unsigned int size){
+    Font ret;
     FT_Library ft;
     // All functions return a value different than 0 whenever an error occurred
     if (FT_Init_FreeType(&ft)){
         std::cout << "ERROR::FREETYPE: Could not init FreeType Library" << std::endl;
-        return Characters;
+        return ret;
     }
 
 	// find path to font
-    std::string font_name = "/home/manuel/Downloads/OTF/VictorMono-Medium.otf";
+    std::string font_name = path.empty() ? "/home/manuel/Downloads/OTF/VictorMono-Medium.otf" : path;
     if (font_name.empty()){
         std::cout << "ERROR::FREETYPE: Failed to load font_name" << std::endl;
-        return Characters;
+        return ret;
     }
 	
 	// load font as face
     FT_Face face;
     if (FT_New_Face(ft, font_name.c_str(), 0, &face)) {
         std::cout << "ERROR::FREETYPE: Failed to load font" << std::endl;
-        return Characters;
+        return ret;
     }
     else {
         // set size to load glyphs as
@@ -452,14 +474,14 @@ std::map<char32_t, Character> LoadFont(){
                 rm::Vector<int, 2>{(int)face->glyph->bitmap_left, (int)face->glyph->bitmap_top},
                 static_cast<unsigned int>(face->glyph->advance.x)
             };
-            Characters.insert(std::pair<char32_t, Character>(c, character));
+            ret.character_map.insert(std::pair<char32_t, Character>(c, character));
         }
         glBindTexture(GL_TEXTURE_2D, 0);
     }
     // destroy FreeType once we're finished
     FT_Done_Face(face);
     FT_Done_FreeType(ft);
-    return Characters;
+    return ret;
 }
 
 Texture::Texture(int width, int height, GLenum format) : width(width), height(height), format(format) {

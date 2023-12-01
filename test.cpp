@@ -37,7 +37,7 @@ void main() {
 
 int main() {
     using namespace rm;
-    const unsigned width = 1920, height = 1080;
+    const unsigned width = 3840, height = 2160;
     egl_config config = egl_default_config();
     //config.samples = 0;
     //config.surface_type = EGL_PIXMAP_BIT;
@@ -49,19 +49,22 @@ int main() {
     printf("OpenGL version supported by %s's %s: %s \n", glGetString(GL_VENDOR), glGetString(GL_RENDERER), glGetString(GL_VERSION));
     printf("Supporting GLSL Version: %s \n", glGetString(GL_SHADING_LANGUAGE_VERSION));
     rc.init(width, height);
-    auto charmap = LoadFont();
+    Font font = LoadFont("", 32);
     using vec3 = rm::Vector<float, 3>;
     //rc.draw_line(
     //    line_info{
     //        .from = vec3{0,0,0}, .fcolor = vec3{1,0,0}, 
     //        .to   = vec3{0,1,0}, .tcolor = vec3{1,0,0}}
     //    );
-    rc.draw_sphere(
-        sphere_info{
-            .pos = vec3{0,2,0}, .color = vec3{0,1,0}, .radius = 1.0f}
-        );
-    rc.draw_text(std::string("grönger ABER ITZ ECHT_!."), 0.0f, 100.0f, 0.5f, charmap);
-    LookAt(vec3{0, 0, -10}, vec3{0, 0, 1});
+    //rc.draw_sphere(
+    //    sphere_info{
+    //        .pos = vec3{0,2,0}, .color = vec3{0,1,0}, .radius = 1.0f}
+    //    );
+    //rc.draw_text(std::string("grönger ABER ITZ ECHT_!."), 0.0f, 100.0f, 0.5f, charmap);
+    LookAt(vec3{0, 0, -2.0}, vec3{0, 0, 1});
+    rc.draw_text_billboard("oooof", vec3{0, 0.0f,  0.0f}, 1.0f, font);
+    rc.draw_text_billboard("oooof", vec3{0, 0.3f, -1.0f}, 1.0f, font);
+    //rc.draw_billboard(font.character_map[(char32_t)246].tex, vec3{0, 0.0f, 0}, 1.0f);
     rc.draw();
     //ClearFrame();
     std::vector<unsigned char> pixels(3 * width * height, 0);  // Assuming RGB
