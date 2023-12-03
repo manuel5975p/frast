@@ -270,9 +270,11 @@ struct Font{
 struct rendercache{
     rm::camera cam;
     rm::Matrix<float, 4, 4> screen_mat;
+    Font default_font;
     unsigned width, height;
     rendercache() : cam(rm::Vector<float, 3>{0,0,-3}, rm::Vector<float, 3>{0,0,1}) { }
     void init(unsigned w, unsigned h);
+    void load_default_font();
     //Volatile data
     std::vector<float> line_data;
     std::vector<float> sphere_data;
@@ -317,7 +319,10 @@ struct rendercache{
 extern rendercache rc;
 void ClearFrame();
 void LookAt(rm::Vector<float, 3> pos, rm::Vector<float, 3> look_dir);
-
+void DrawLine(float xf, float yf, float zf, float xt, float yt, float zt, float r, float g, float b);
+void DrawRectangle(const Texture& tex, float x, float y, float scale, float r, float g, float b);
+void DrawText(const std::string& text, float xf, float yf, float scale, float r, float g, float b);
+void DrawTextBillboard(const std::string& text, float xf, float yf, float zf, float scale, float r, float g, float b);
 Font LoadFont(std::string path, unsigned int size);
 vaovbo to_vao(const Mesh& mesh, float* offsets, size_t count);
 

@@ -49,7 +49,8 @@ int main() {
     printf("OpenGL version supported by %s's %s: %s \n", glGetString(GL_VENDOR), glGetString(GL_RENDERER), glGetString(GL_VERSION));
     printf("Supporting GLSL Version: %s \n", glGetString(GL_SHADING_LANGUAGE_VERSION));
     rc.init(width, height);
-    Font font = LoadFont("", 32);
+    rc.load_default_font();
+    //Font font = LoadFont("", 32);
     using vec3 = rm::Vector<float, 3>;
     //rc.draw_line(
     //    line_info{
@@ -62,8 +63,9 @@ int main() {
     //    );
     //rc.draw_text(std::string("grönger ABER ITZ ECHT_!."), 0.0f, 100.0f, 0.5f, charmap);
     LookAt(vec3{0, 0, -2.0}, vec3{0, 0, 1});
-    rc.draw_text_billboard("oooof", vec3{0, 0.0f,  0.0f}, 1.0f, font);
-    rc.draw_text_billboard("oooof", vec3{0, 0.3f, -1.0f}, 1.0f, font);
+    DrawText("klonk", 0,100,1,1,1,1);
+    //rc.draw_text_billboard("oooof", vec3{0, 0.0f,  0.0f}, 1.0f, rc.default_font);
+    //rc.draw_text_billboard("oooof", vec3{0, 0.3f, -1.0f}, 1.0f, rc.default_font);
     //rc.draw_billboard(font.character_map[(char32_t)246].tex, vec3{0, 0.0f, 0}, 1.0f);
     rc.draw();
     //ClearFrame();

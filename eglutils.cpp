@@ -5,6 +5,7 @@
 #include <stb_image_write.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include <fontconfig/fontconfig.h>
 EGLContext eglCtx;
 EGLDisplay eglDpy;
 Mesh GenMeshSphere(float radius, int rings, int slices) {
@@ -401,6 +402,91 @@ void rendercache::draw_text(const std::string& _text, float x, float y, float sc
     }
 }
 
+void PrintAllMonospaceFonts() {
+    FcConfig* config = FcInitLoadConfigAndFonts();
+    if (!config) {
+        std::cerr << "Error initializing Fontconfig" << std::endl;
+        return;
+    }
+
+    FcPattern* pattern = FcPatternCreate();
+    FcPatternAddString(pattern, FC_FAMILY, reinterpret_cast<const FcChar8*>("monospace"));
+
+    FcResult result;
+    FcPattern* match = FcFontMatch(config, pattern, &result);
+
+    if (!match) {
+        std::cerr << "No monospace fonts found" << std::endl;
+        FcPatternDestroy(pattern);
+        FcConfigDestroy(config);
+        return;
+    }
+
+    FcFontSet* fontSet = FcFontList(config, pattern, nullptr);
+    if (!fontSet) {
+        std::cerr << "Error retrieving monospace font list" << std::endl;
+        FcPatternDestroy(match);
+        FcPatternDestroy(pattern);
+        FcConfigDestroy(config);
+        return;
+    }
+
+    std::cout << "Monospace Fonts:" << std::endl;
+
+    for (int i = 0; i < fontSet->nfont; ++i) {
+        FcChar8* fontFile;
+        if (FcPatternGetString(fontSet->fonts[i], FC_FILE, 0, &fontFile) == FcResultMatch) {
+            std::cout << reinterpret_cast<const char*>(fontFile) << std::endl;
+        }
+    }
+
+    FcFontSetDestroy(fontSet);
+    FcPatternDestroy(match);
+    FcPatternDestroy(pattern);
+    FcConfigDestroy(config);
+}
+
+std::string FindSansSerifFontPath() {
+    FcConfig* config = FcInitLoadConfigAndFonts();
+    if (!config) {
+        std::cerr << "Error initializing Fontconfig" << std::endl;
+        return "";
+    }
+
+    FcPattern* pattern = FcPatternCreate();
+    FcPatternAddString(pattern, FC_FAMILY, reinterpret_cast<const FcChar8*>("sans-serif"));
+
+    FcResult result;
+    FcPattern* match = FcFontMatch(config, pattern, &result);
+
+    if (!match) {
+        std::cerr << "Sans-serif font not found" << std::endl;
+        FcPatternDestroy(pattern);
+        FcConfigDestroy(config);
+        return "";
+    }
+
+    FcChar8* fontFile;
+    if (FcPatternGetString(match, FC_FILE, 0, &fontFile) == FcResultMatch) {
+        std::string fontPath(reinterpret_cast<const char*>(fontFile));
+        FcPatternDestroy(match);
+        FcPatternDestroy(pattern);
+        FcConfigDestroy(config);
+        return fontPath;
+    }
+
+    std::cerr << "Error retrieving sans-serif font path" << std::endl;
+    FcPatternDestroy(match);
+    FcPatternDestroy(pattern);
+    FcConfigDestroy(config);
+    return "";
+}
+void rendercache::load_default_font(){
+    //PrintAllMonospaceFonts();
+    std::string default_path = FindSansSerifFontPath();
+    std::cout << "Loading default font: " << default_path << std::endl;
+    this->default_font = LoadFont(default_path, 96);
+}
 Font LoadFont(std::string path, unsigned int size){
     Font ret;
     FT_Library ft;
@@ -531,4 +617,35 @@ void RenderTexture::bind() {
 
 void RenderTexture::unbind() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+void DrawLine(float xf, float yf, float zf, float xt, float yt, float zt, float r, float g, float b){
+    using v3 = rm::Vector<float, 3>;
+    rc.draw_line(
+        line_info{
+            .from = v3{xf, yf, zf},
+            .fcolor = v3{r, g, b},
+            .to = v3{xt, yt, zt},
+            .tcolor = v3{r, g, b}
+        }
+    );
+}
+void DrawRectangle(const Texture& tex, float x, float y, float scale, float r, float g, float b){
+    rc.draw_rectangle(tex, x, y, scale, rm::Vector<float, 4>{r, g, b, 1.0f});
+    /*using v3 = rm::Vector<float, 3>;
+    rc.draw_line(
+        line_info{
+            .from = v3{xf, yf, zf},
+            .fcolor = v3{r, g, b},
+            .to = v3{xt, yt, zt},
+            .tcolor = v3{r, g, b}
+        }
+    );*/
+}
+void DrawText(const std::string& text, float xf, float yf, float scale, float r, float g, float b){
+    using v3 = rm::Vector<float, 3>;
+    rc.draw_text(text, xf, yf, scale, rc.default_font, rm::Vector<float, 4>{r, g, b, 1.0f});
+}
+void DrawTextBillboard(const std::string& text, float xf, float yf, float zf, float scale, float r, float g, float b){
+    using v3 = rm::Vector<float, 3>;
+    rc.draw_text_billboard(text, v3{xf, yf, zf}, scale, rc.default_font, rm::Vector<float, 4>{r, g, b, 1.0f});
 }
